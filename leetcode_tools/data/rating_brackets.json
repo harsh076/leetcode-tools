@@ -1,37 +1,37 @@
 {
     "1700-1800": {
         "easy_pct": 20, "medium_pct": 70, "hard_pct": 10,
-        "medium_acc": [45, 70], "hard_acc": [30, 45],
+        "medium_acc": [40, 70], "hard_acc": [30, 50],
         "like_ratio": 5.0, "freq_min": 50
     },
     "1800-1900": {
         "easy_pct": 10, "medium_pct": 65, "hard_pct": 25,
-        "medium_acc": [35, 60], "hard_acc": [25, 40],
+        "medium_acc": [35, 65], "hard_acc": [25, 45],
         "like_ratio": 7.0, "freq_min": 60
     },
     "1900-2000": {
         "easy_pct": 5, "medium_pct": 55, "hard_pct": 40,
-        "medium_acc": [30, 50], "hard_acc": [20, 35],
+        "medium_acc": [30, 60], "hard_acc": [20, 40],
         "like_ratio": 10.0, "freq_min": 70
     },
     "2000-2100": {
         "easy_pct": 0, "medium_pct": 50, "hard_pct": 50,
-        "medium_acc": [25, 45], "hard_acc": [15, 30],
+        "medium_acc": [25, 55], "hard_acc": [20, 40],
         "like_ratio": 15.0, "freq_min": 75
     },
     "2100-2200": {
         "easy_pct": 0, "medium_pct": 40, "hard_pct": 60,
-        "medium_acc": [20, 40], "hard_acc": [10, 25],
+        "medium_acc": [20, 50], "hard_acc": [15, 35],
         "like_ratio": 20.0, "freq_min": 80
     },
     "2200-2300": {
         "easy_pct": 0, "medium_pct": 30, "hard_pct": 70,
-        "medium_acc": [15, 35], "hard_acc": [5, 20],
+        "medium_acc": [15, 45], "hard_acc": [10, 30],
         "like_ratio": 25.0, "freq_min": 85
     },
     "2300-2400": {
         "easy_pct": 0, "medium_pct": 20, "hard_pct": 80,
-        "medium_acc": [10, 30], "hard_acc": [0, 15],
+        "medium_acc": [10, 40], "hard_acc": [10, 25],
         "like_ratio": 30.0, "freq_min": 90
     }
 }

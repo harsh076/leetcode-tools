@@ -10,13 +10,6 @@ def calculate_quality_score(problem: Dict[str, Any], topic_weights: Dict[str, fl
     3. Like/dislike ratio (higher is better)
     4. Topic importance
     5. Rating (small weight)
-
-    Args:
-        problem: Problem dictionary with attributes
-        topic_weights: Dictionary mapping topics to their importance weights
-
-    Returns:
-        Quality score as a float
     """
     # Extract problem attributes with safe handling of NULL values
     frequency = float(problem.get("frequency_bar", 0)) if problem.get("frequency_bar") is not None else 0
@@ -43,21 +36,21 @@ def calculate_quality_score(problem: Dict[str, Any], topic_weights: Dict[str, fl
         else:  # > 70%
             acc_score = max(0, (90 - acceptance) / 20) * 20
     elif difficulty == "Medium":
-        # For medium problems, 35-60% acceptance is optimal
-        if 35 <= acceptance <= 60:
+        # For medium problems, 40-60% acceptance is optimal
+        if 40 <= acceptance <= 60:
             acc_score = 20
-        elif acceptance < 35:
-            acc_score = (acceptance / 35) * 20
+        elif acceptance < 40:
+            acc_score = (acceptance / 40) * 20
         else:  # > 60%
             acc_score = max(0, (80 - acceptance) / 20) * 20
     else:  # Hard
-        # For hard problems, 20-40% acceptance is optimal
-        if 20 <= acceptance <= 40:
+        # For hard problems, 30-50% acceptance is optimal
+        if 30 <= acceptance <= 50:
             acc_score = 20
-        elif acceptance < 20:
-            acc_score = (acceptance / 20) * 20
-        else:  # > 40%
-            acc_score = max(0, (60 - acceptance) / 20) * 20
+        elif acceptance < 30:
+            acc_score = (acceptance / 30) * 20
+        else:  # > 50%
+            acc_score = max(0, (70 - acceptance) / 20) * 20
 
     # Like/dislike ratio score (max 20 points)
     # Based on the distribution data, most problems have ratio < 50
@@ -71,7 +64,7 @@ def calculate_quality_score(problem: Dict[str, Any], topic_weights: Dict[str, fl
         for topic in topics:
             total_weight += topic_weights.get(topic, 1.0)
         avg_weight = total_weight / len(topics)
-        topic_score = min(avg_weight, 1.6) / 1.6 * 15
+        topic_score = min(avg_weight, 1.3) / 1.3 * 15
 
     # Rating score (small weight - max 5 points)
     # We use the reverse of normalized rating so that a rating closer to the lower bound
