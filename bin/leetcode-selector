@@ -1,0 +1,8 @@
+#!/usr/bin/env python3
+"""
+LeetCode Selector - Tool for selecting high-quality LeetCode problems
+"""
+from leetcode_tools.cli.main import selector_main
+
+if __name__ == "__main__":
+    selector_main()
