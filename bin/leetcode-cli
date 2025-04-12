@@ -2,7 +2,7 @@
 """
 LeetCode CLI - Command-line tool for managing LeetCode problems
 """
-from leetcode_tools.cli.main import main
+from ..leetcode_tools.cli.main import main
 
 if __name__ == "__main__":
     main()
