@@ -3,7 +3,7 @@ import sys
 from rich.console import Console
 
 from .parser import setup_parsers, setup_selector_parser
-from commands import (
+from .commands import (
     handle_login, handle_fetch, handle_add_to_list,
     handle_update_db, handle_configure_db, handle_select_problems,
     handle_help, handle_config
