@@ -74,7 +74,21 @@ def calculate_quality_score(problem: Dict[str, Any], topic_weights: Dict[str, fl
         # Normalize rating to 0-5 points, with small weight
         rating_score = min(5, max(0, 5 - abs(rating - 2000) / 200))
 
-    # Total score
-    total_score = freq_score + acc_score + like_score + topic_score + rating_score
+    target_companies = ["google", "amazon", "facebook", "microsoft", "apple"]
+    companies = problem.get("companies", "").split(', ') if problem.get("companies") else []
+
+    # Company score (max 10 points)
+    company_score = 0
+    if companies:
+        # Give points for each target company tag
+        for company in companies:
+            company_lower = company.lower()
+            if any(target.lower() in company_lower for target in target_companies):
+                company_score += 2  # 2 points per target company
+
+        company_score = min(company_score, 10)  # Cap at 10 points
+
+    # Add company_score to total_score
+    total_score = freq_score + acc_score + like_score + topic_score + rating_score + company_score
 
     return total_score

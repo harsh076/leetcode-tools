@@ -244,6 +244,7 @@ class ProblemSelector:
             table.add_column("Acceptance", justify="right")
             table.add_column("Like Ratio", justify="right")
             table.add_column("Topics", style="yellow", width=40)
+            table.add_column("Companies", style="magenta", width=40)
             table.add_column("URL", style="blue")
 
             for problem in problems:
@@ -254,7 +255,8 @@ class ProblemSelector:
                     f"{problem.get('frequency_bar', 'N/A')}",
                     f"{problem.get('acceptance_rate', 'N/A')}%" if problem.get('acceptance_rate') else "N/A",
                     f"{problem.get('like_ratio', 'N/A'):.1f}" if problem.get('like_ratio') else "N/A",
-                    problem.get("topics", "")[:40] + ("..." if len(problem.get("topics", "")) > 40 else ""),
+                    problem.get("topics", "")[:30] + ("..." if len(problem.get("topics", "")) > 30 else ""),
+                    problem.get("companies", "")[:30] + ("..." if len(problem.get("companies", "")) > 30 else ""),
                     problem.get("url", "")
                 )
 

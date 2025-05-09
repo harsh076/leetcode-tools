@@ -129,6 +129,10 @@ class LeetCodeAPIClient:
                         id
                         slug
                     }
+                    companyTags {
+                        name
+                        slug
+                    }
                     hasSolution
                     hasVideoSolution
                     stats

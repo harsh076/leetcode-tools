@@ -105,10 +105,32 @@ class DatabaseManager:
         )
         """
 
+        create_companies = """
+        CREATE TABLE IF NOT EXISTS companies (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            name VARCHAR(100) NOT NULL,
+            slug VARCHAR(100) NOT NULL,
+            UNIQUE KEY (slug)
+        )
+        """
+
+        # Create the problem_companies relation table
+        create_problem_companies = """
+        CREATE TABLE IF NOT EXISTS problem_companies (
+            problem_id INT NOT NULL,
+            company_id INT NOT NULL,
+            PRIMARY KEY (problem_id, company_id),
+            FOREIGN KEY (problem_id) REFERENCES problems(id) ON DELETE CASCADE,
+            FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE
+        )
+        """
+
         try:
             self.cursor.execute(create_problems)
             self.cursor.execute(create_topics)
             self.cursor.execute(create_problem_topics)
+            self.cursor.execute(create_companies)
+            self.cursor.execute(create_problem_companies)
             return True
         except mysql.connector.Error as e:
             console.print(f"Error creating tables: {e}", style="red")
@@ -191,6 +213,17 @@ class DatabaseManager:
         VALUES (%s, %s)
         """
 
+        company_sql = """
+        INSERT IGNORE INTO companies (name, slug)
+        VALUES (%s, %s)
+        """
+
+        # SQL for problem_companies table
+        problem_company_sql = """
+        INSERT IGNORE INTO problem_companies (problem_id, company_id)
+        VALUES (%s, %s)
+        """
+
         try:
             # Parse the stats JSON string if it's a string
             stats = problem.get("stats", "{}")
@@ -262,6 +295,28 @@ class DatabaseManager:
                         # Link problem with topic
                         self.cursor.execute(problem_topic_sql, (problem_id, topic_id))
 
+            if "companyTags" in problem and problem["companyTags"]:
+                # Insert companies
+                for company in problem["companyTags"]:
+                    if not all(k in company for k in ["name", "slug"]):
+                        continue
+
+                    company_data = (
+                        company["name"],
+                        company["slug"]
+                    )
+                    self.cursor.execute(company_sql, company_data)
+
+                    # Get company ID
+                    get_company_id_sql = "SELECT id FROM companies WHERE slug = %s"
+                    self.cursor.execute(get_company_id_sql, (company["slug"],))
+                    company_result = self.cursor.fetchone()
+
+                    if company_result:
+                        company_id = company_result['id']
+                        # Link problem with company
+                        self.cursor.execute(problem_company_sql, (problem_id, company_id))
+
             self.conn.commit()
             return True
 
@@ -289,11 +344,14 @@ class DatabaseManager:
             if not self.connect():
                 return []
 
+        # Update the query in DatabaseManager.get_quality_problems() method
+
         query = """
         SELECT 
             p.id, p.title_slug, p.url, p.status, p.acceptance_rate, p.frequency_bar,
             ROUND(p.likes/NULLIF(p.dislikes, 0), 2) AS like_ratio,
-            GROUP_CONCAT(t.name SEPARATOR ', ') AS topics,
+            GROUP_CONCAT(DISTINCT t.name SEPARATOR ', ') AS topics,
+            GROUP_CONCAT(DISTINCT c.name SEPARATOR ', ') AS companies,
             p.likes, p.dislikes, p.rating, p.title
         FROM 
             problems p
@@ -301,6 +359,10 @@ class DatabaseManager:
             problem_topics pt ON p.id = pt.problem_id
         JOIN 
             topics t ON pt.topic_id = t.id
+        LEFT JOIN
+            problem_companies pc ON p.id = pc.problem_id
+        LEFT JOIN
+            companies c ON pc.company_id = c.id
         WHERE 
             p.difficulty = %s
             AND (p.status IS NULL OR p.status != 'ac')
