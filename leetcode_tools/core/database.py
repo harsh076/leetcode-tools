@@ -167,7 +167,7 @@ class DatabaseManager:
             return None
 
     def update_problem(self, problem: Dict[str, Any]) -> bool:
-        """Update a single problem in the database."""
+        """Update a single problem in the database with improved error handling."""
         if not self.cursor:
             if not self.connect():
                 return False
@@ -246,17 +246,38 @@ class DatabaseManager:
                 except ValueError:
                     ac_rate_percentage = 0.0
 
-            # Prepare problem data with safe defaults
+            # Prepare problem data with safe defaults, handling type conversions and NULL values
+            frequency_bar = problem.get("freqBar")
+            if frequency_bar is not None:
+                try:
+                    frequency_bar = float(frequency_bar)
+                except (ValueError, TypeError):
+                    frequency_bar = None
+
+            likes = problem.get("likes", 0)
+            if likes is not None:
+                try:
+                    likes = int(likes)
+                except (ValueError, TypeError):
+                    likes = 0
+
+            dislikes = problem.get("dislikes", 0)
+            if dislikes is not None:
+                try:
+                    dislikes = int(dislikes)
+                except (ValueError, TypeError):
+                    dislikes = 0
+
             problem_data = (
-                problem.get("questionId", ""),
-                problem.get("frontendQuestionId", ""),
-                float(problem.get("acRate", 0)),
+                str(problem.get("questionId", "")),  # Ensure it's a string
+                str(problem.get("frontendQuestionId", "")),  # Ensure it's a string
+                float(ac_rate_percentage),
                 problem.get("difficulty", "Medium"),
-                problem.get("freqBar", 0),
+                frequency_bar,
                 float(problem.get("rating", 0.0)),
                 problem.get("status", None),
-                int(problem.get("likes", 0)),
-                int(problem.get("dislikes", 0)),
+                likes,
+                dislikes,
                 problem.get("title", ""),
                 problem.get("titleSlug", ""),
                 f"https://leetcode.com/problems/{problem.get('titleSlug', '')}/description/",
@@ -270,7 +291,11 @@ class DatabaseManager:
             )
 
             self.cursor.execute(problem_sql, problem_data)
-            problem_id = self.cursor.lastrowid or self.get_problem_id(problem.get("questionId", ""))
+            problem_id = self.cursor.lastrowid
+
+            # If no new row was inserted, get the existing problem_id
+            if not problem_id:
+                problem_id = self.get_problem_id(str(problem.get("questionId", "")))
 
             if not problem_id:
                 console.print(f"Warning: Couldn't get problem ID for {problem.get('title', '')}", style="yellow")
@@ -289,12 +314,20 @@ class DatabaseManager:
                         topic["slug"]
                     )
                     self.cursor.execute(topic_sql, topic_data)
-                    topic_id = self.cursor.lastrowid or self.get_topic_id(topic["id"])
+
+                    # Get topic ID - first check if it was just inserted
+                    topic_id = self.cursor.lastrowid
+                    if not topic_id:
+                        # If not, query for it
+                        self.cursor.execute("SELECT id FROM topics WHERE topic_id = %s", (topic["id"],))
+                        topic_result = self.cursor.fetchone()
+                        topic_id = topic_result['id'] if topic_result else None
 
                     if topic_id:
                         # Link problem with topic
                         self.cursor.execute(problem_topic_sql, (problem_id, topic_id))
 
+            # Handle company tags
             if "companyTags" in problem and problem["companyTags"]:
                 # Insert companies
                 for company in problem["companyTags"]:
@@ -307,13 +340,15 @@ class DatabaseManager:
                     )
                     self.cursor.execute(company_sql, company_data)
 
-                    # Get company ID
-                    get_company_id_sql = "SELECT id FROM companies WHERE slug = %s"
-                    self.cursor.execute(get_company_id_sql, (company["slug"],))
-                    company_result = self.cursor.fetchone()
+                    # Get company ID - first check if it was just inserted
+                    company_id = self.cursor.lastrowid
+                    if not company_id:
+                        # If not, query for it
+                        self.cursor.execute("SELECT id FROM companies WHERE slug = %s", (company["slug"],))
+                        company_result = self.cursor.fetchone()
+                        company_id = company_result['id'] if company_result else None
 
-                    if company_result:
-                        company_id = company_result['id']
+                    if company_id:
                         # Link problem with company
                         self.cursor.execute(problem_company_sql, (problem_id, company_id))
 
@@ -322,6 +357,10 @@ class DatabaseManager:
 
         except mysql.connector.Error as e:
             console.print(f"Error updating problem {problem.get('title')}: {e}", style="red")
+            self.conn.rollback()
+            return False
+        except Exception as e:
+            console.print(f"Unexpected error updating problem {problem.get('title')}: {e}", style="red")
             self.conn.rollback()
             return False
 
@@ -344,20 +383,18 @@ class DatabaseManager:
             if not self.connect():
                 return []
 
-        # Update the query in DatabaseManager.get_quality_problems() method
-
         query = """
         SELECT 
             p.id, p.title_slug, p.url, p.status, p.acceptance_rate, p.frequency_bar,
-            ROUND(p.likes/NULLIF(p.dislikes, 0), 2) AS like_ratio,
+            CASE WHEN p.dislikes > 0 THEN ROUND(p.likes/p.dislikes, 2) ELSE p.likes END AS like_ratio,
             GROUP_CONCAT(DISTINCT t.name SEPARATOR ', ') AS topics,
             GROUP_CONCAT(DISTINCT c.name SEPARATOR ', ') AS companies,
             p.likes, p.dislikes, p.rating, p.title
         FROM 
             problems p
-        JOIN 
+        LEFT JOIN 
             problem_topics pt ON p.id = pt.problem_id
-        JOIN 
+        LEFT JOIN 
             topics t ON pt.topic_id = t.id
         LEFT JOIN
             problem_companies pc ON p.id = pc.problem_id
@@ -367,12 +404,17 @@ class DatabaseManager:
             p.difficulty = %s
             AND (p.status IS NULL OR p.status != 'ac')
             AND p.acceptance_rate BETWEEN %s AND %s
-            AND p.frequency_bar >= %s
-            AND p.likes/NULLIF(p.dislikes, 0) >= %s
+            AND (p.frequency_bar >= %s OR p.frequency_bar IS NULL)
+            AND (
+                (p.dislikes > 0 AND p.likes/p.dislikes >= %s) 
+                OR (p.dislikes = 0 AND p.likes > 0)
+                OR (p.likes IS NULL AND p.dislikes IS NULL)
+            )
         GROUP BY 
             p.id
         ORDER BY 
             p.frequency_bar DESC, p.acceptance_rate DESC
+        LIMIT %s
         """
 
         params = (
@@ -380,7 +422,8 @@ class DatabaseManager:
             acc_range[0],
             acc_range[1],
             freq_min,
-            like_ratio_min
+            like_ratio_min,
+            count
         )
 
         try:

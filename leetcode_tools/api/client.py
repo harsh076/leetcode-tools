@@ -4,13 +4,13 @@ import time
 import requests
 from typing import Dict, List, Tuple, Optional, Any, Callable
 from rich.console import Console
-from rich.progress import Progress, TaskProgressColumn, TimeRemainingColumn, BarColumn, TextColumn
+from rich.progress import Progress, TextColumn, BarColumn, TaskProgressColumn, TimeRemainingColumn
 
 console = Console()
 
 
 class LeetCodeAPIClient:
-    """Client for interacting with LeetCode API."""
+    """Client for interacting with LeetCode API with improved progress display."""
 
     def __init__(self, session_token: str = "", csrf_token: str = ""):
         """Initialize the API client with authentication tokens."""
@@ -94,7 +94,7 @@ class LeetCodeAPIClient:
 
     def fetch_problems(self, progress_callback: Optional[Callable[[int, int], None]] = None) -> List[Dict]:
         """
-        Fetch all problems using GraphQL API with pagination and progress indicators.
+        Fetch all problems using GraphQL API with a streamlined progress display.
 
         Args:
             progress_callback: Optional callback function to report progress
@@ -147,24 +147,21 @@ class LeetCodeAPIClient:
         problems = []
         total_problems = 0
 
-        # Use custom progress tracking or callback
-        task_id = None
-        progress_obj = None
-
-        # Create a progress bar if no callback is provided
-        if progress_callback is None:
-            progress_obj = Progress(
-                TextColumn("[bold blue]Fetching problems..."),
+        # Create a streamlined progress display
+        with Progress(
+                TextColumn("[bold blue]Fetching LeetCode problems..."),
                 BarColumn(),
                 TaskProgressColumn(),
                 TimeRemainingColumn(),
-                transient=False  # This prevents flickering
-            )
-            progress_obj.start()
-            task_id = progress_obj.add_task("[cyan]Downloading...", total=None)
+                console=console,
+                transient=False,  # Keep the progress bar visible
+                refresh_per_second=1  # Update less frequently to reduce output
+        ) as progress:
+            # Start with indeterminate progress until we know the total
+            task_id = progress.add_task("Downloading...", total=None)
 
-        try:
-            while True:
+            try:
+                # First request to get total count
                 variables = {
                     "categorySlug": "",
                     "limit": limit,
@@ -178,57 +175,76 @@ class LeetCodeAPIClient:
                     response = requests.post(url, json=payload, headers=self.get_headers())
                     response.raise_for_status()
                 except requests.exceptions.RequestException as e:
-                    if progress_obj:
-                        progress_obj.stop()
                     console.print(f"Error fetching problems: {e}", style="red")
                     return []
 
                 data = response.json()
                 if "errors" in data:
-                    if progress_obj:
-                        progress_obj.stop()
                     console.print(f"GraphQL error: {data['errors']}", style="red")
                     return []
 
+                # Get total and update progress
                 problemset_data = data.get("data", {}).get("problemsetQuestionList", {})
                 if not problemset_data:
-                    if progress_obj:
-                        progress_obj.stop()
                     console.print("No problem data returned from API", style="red")
                     return []
 
-                if not total_problems:
-                    total_problems = problemset_data.get("total", 0)
-                    if progress_obj and task_id:
-                        progress_obj.update(task_id, total=total_problems)
-                    elif progress_callback:
-                        progress_callback(0, total_problems)
+                total_problems = problemset_data.get("total", 0)
+                progress.update(task_id, total=total_problems, description=f"Downloading {total_problems} problems")
 
+                # Process first batch
                 batch_problems = problemset_data.get("questions", [])
                 problems.extend(batch_problems)
+                progress.update(task_id, advance=len(batch_problems))
 
-                # Update progress
-                if progress_obj and task_id:
-                    progress_obj.update(task_id, advance=len(batch_problems))
-                elif progress_callback:
-                    progress_callback(len(problems), total_problems)
-
+                # Fetch remaining batches
                 skip += limit
 
-                # Be nice to the server
-                time.sleep(1)  # 1-second delay between requests
+                while skip < total_problems:
+                    # Update variables for next batch
+                    variables["skip"] = skip
+                    payload = {"query": query, "variables": variables}
 
-                if skip >= total_problems or not batch_problems:
-                    break
+                    try:
+                        response = requests.post(url, json=payload, headers=self.get_headers())
+                        response.raise_for_status()
+                        data = response.json()
 
-            return problems
+                        if "errors" in data:
+                            console.print(f"GraphQL error in batch {skip // limit + 1}: {data['errors']}", style="red")
+                            break
 
-        except Exception as e:
-            console.print(f"Unexpected error fetching problems: {e}", style="red")
-            return []
-        finally:
-            if progress_obj:
-                progress_obj.stop()
+                        problemset_data = data.get("data", {}).get("problemsetQuestionList", {})
+                        batch_problems = problemset_data.get("questions", [])
+
+                        if not batch_problems:
+                            break
+
+                        problems.extend(batch_problems)
+                        progress.update(task_id, advance=len(batch_problems))
+
+                        # Be nice to the server - slight delay between requests
+                        time.sleep(0.5)
+
+                    except requests.exceptions.RequestException as e:
+                        console.print(f"Error fetching batch {skip // limit + 1}: {e}", style="red")
+                        break
+
+                    skip += limit
+
+                # Final status update
+                if len(problems) == total_problems:
+                    progress.update(task_id,
+                                    description=f"[green]Successfully downloaded all {total_problems} problems")
+                else:
+                    progress.update(task_id,
+                                    description=f"[yellow]Downloaded {len(problems)} of {total_problems} problems")
+
+                return problems
+
+            except Exception as e:
+                console.print(f"Unexpected error fetching problems: {e}", style="red")
+                return []
 
     def get_problem_id(self, problem_input: str) -> Tuple[Optional[str], Optional[str]]:
         """
@@ -326,7 +342,7 @@ class LeetCodeAPIClient:
                 if "errors" in result:
                     return False, f"GraphQL Error: {result['errors']}"
                 elif result.get("data", {}).get("addQuestionToFavorite", {}).get("ok"):
-                    return True, f"Successfully added problem '{problem_id}' to list {list_id}"
+                    return True, f"Added problem '{problem_id}' to list {list_id}"
                 else:
                     error = result.get("data", {}).get("addQuestionToFavorite", {}).get("error", "Unknown error")
                     return False, f"Failed to add problem: {error}"
@@ -335,12 +351,9 @@ class LeetCodeAPIClient:
         except Exception as e:
             return False, f"Error adding problem to list: {str(e)}"
 
-    def get_rating_dict(self, progress_callback: Optional[Callable[[int, int], None]] = None) -> Dict[str, float]:
+    def get_rating_dict(self) -> Dict[str, float]:
         """
-        Fetches the rating dictionary from GitHub.
-
-        Args:
-            progress_callback: Optional callback function to report progress
+        Fetches the rating dictionary from GitHub with streamlined output.
 
         Returns:
             Dictionary mapping problem slugs to ratings
@@ -348,7 +361,7 @@ class LeetCodeAPIClient:
         url = 'https://raw.githubusercontent.com/zerotrac/leetcode_problem_rating/main/ratings.txt'
 
         try:
-            with console.status("[cyan]Fetching problem ratings from GitHub..."):
+            with console.status("[cyan]Fetching problem ratings..."):
                 response = requests.get(url)
 
             if response.status_code != 200:
@@ -356,24 +369,21 @@ class LeetCodeAPIClient:
                 return {}
 
             lines = response.text.splitlines()
-            rating_dict = {}
 
-            # Create a progress bar if no callback is provided
-            progress_obj = None
-            task_id = None
-
-            if progress_callback is None:
-                progress_obj = Progress(
+            # Create a compact progress display
+            with Progress(
                     TextColumn("[bold blue]Processing ratings..."),
                     BarColumn(),
                     TaskProgressColumn(),
-                    transient=False  # This prevents flickering
-                )
-                progress_obj.start()
-                task_id = progress_obj.add_task("[cyan]Parsing...", total=len(lines))
+                    TimeRemainingColumn(),
+                    console=console,
+                    transient=False,
+                    refresh_per_second=2
+            ) as progress:
+                task_id = progress.add_task("Parsing", total=len(lines))
 
-            try:
-                for i, line in enumerate(lines):
+                rating_dict = {}
+                for line in lines:
                     fields = line.split('\t')
                     if len(fields) >= 5:
                         slug = fields[4]
@@ -383,16 +393,11 @@ class LeetCodeAPIClient:
                         except ValueError:
                             pass
 
-                    # Update progress
-                    if progress_obj and task_id:
-                        progress_obj.update(task_id, advance=1)
-                    elif progress_callback:
-                        progress_callback(i + 1, len(lines))
-            finally:
-                if progress_obj:
-                    progress_obj.stop()
+                    progress.update(task_id, advance=1)
 
-            console.print(f"Loaded {len(rating_dict)} problem ratings", style="green")
+                # Final status
+                progress.update(task_id, description=f"[green]Loaded {len(rating_dict)} problem ratings")
+
             return rating_dict
 
         except Exception as e:

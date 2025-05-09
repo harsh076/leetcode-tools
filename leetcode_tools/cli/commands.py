@@ -34,7 +34,7 @@ def handle_login(args, config_manager: ConfigManager, api_client: LeetCodeAPICli
 
 
 def handle_fetch(args, config_manager: ConfigManager, api_client: LeetCodeAPIClient) -> None:
-    """Handle fetch command."""
+    """Handle fetch command with improved output."""
     # Verify authentication first
     auth_result = api_client.verify_auth()
     if not auth_result["success"]:
@@ -52,7 +52,7 @@ def handle_fetch(args, config_manager: ConfigManager, api_client: LeetCodeAPICli
     if not csv_file and not args.no_csv:
         csv_file = os.path.join(data_dir, "leetcode_problems.csv")
 
-    # Fetch problems
+    # Fetch problems with improved progress display
     problems = api_client.fetch_problems()
 
     if not problems:
@@ -60,15 +60,19 @@ def handle_fetch(args, config_manager: ConfigManager, api_client: LeetCodeAPICli
         return
 
     # Save to JSON
-    FileManager.save_to_json(problems, json_file)
+    console.print(f"Saving {len(problems)} problems to JSON file...", style="blue")
+    if FileManager.save_to_json(problems, json_file):
+        console.print(f"✅ Data saved to {json_file}", style="green")
 
     # Convert to CSV if needed
     if not args.no_csv:
-        FileManager.convert_problems_to_csv(problems, csv_file)
+        console.print(f"Converting to CSV format...", style="blue")
+        if FileManager.convert_problems_to_csv(problems, csv_file):
+            console.print(f"✅ CSV saved to {csv_file}", style="green")
 
 
 def handle_add_to_list(args, config_manager: ConfigManager, api_client: LeetCodeAPIClient) -> None:
-    """Handle add-to-list command."""
+    """Handle add-to-list command with improved progress display."""
     # Verify authentication first
     auth_result = api_client.verify_auth()
     if not auth_result["success"]:
@@ -82,58 +86,53 @@ def handle_add_to_list(args, config_manager: ConfigManager, api_client: LeetCode
         console.print(f"No problems loaded from {args.problems_file}", style="red")
         return
 
-    console.print(f"Loaded {len(problems)} problems from {args.problems_file}")
-    console.print(f"Target list ID: {args.list_id}")
-    console.print(f"Using {args.delay} second delay between requests")
-    console.print("─" * 50)
+    console.print(f"Adding {len(problems)} problems to list ID: {args.list_id}", style="blue")
 
     success_count = 0
     fail_count = 0
 
     with Progress(
-            TextColumn("[bold blue]Processing problems..."),
+            TextColumn("[bold blue]Adding problems to list..."),
             BarColumn(),
             TaskProgressColumn(),
             TimeRemainingColumn(),
-            transient=False  # This prevents flickering
+            console=console,
+            transient=False,
+            refresh_per_second=1
     ) as progress:
-        task = progress.add_task("[cyan]Adding to list...", total=len(problems))
+        task = progress.add_task(f"Adding to list {args.list_id}", total=len(problems))
 
         for i, problem_input in enumerate(problems, 1):
-            progress.print(f"[{i}/{len(problems)}] Processing: {problem_input}")
-
             # Get the problem ID
             problem_id, error = api_client.get_problem_id(problem_input)
             if error:
-                progress.print(f"  ❌ Error: {error}", style="red")
                 fail_count += 1
                 progress.update(task, advance=1)
                 continue
 
-            progress.print(f"  📝 Found problem ID: {problem_id}")
-
             # Add the problem to the list
             success, message = api_client.add_problem_to_list(args.list_id, problem_id)
             if success:
-                progress.print(f"  ✅ {message}", style="green")
                 success_count += 1
             else:
-                progress.print(f"  ❌ {message}", style="red")
                 fail_count += 1
 
             # Sleep to be nice to the server, but not after the last item
             if i < len(problems):
                 time.sleep(args.delay)
 
-            progress.update(task, advance=1)
+            progress.update(task, advance=1, description=f"Added {success_count} of {len(problems)} problems")
 
-    console.print("─" * 50)
-    console.print(f"Summary: {success_count} added successfully, {fail_count} failed")
+    # Final summary
+    if success_count == len(problems):
+        console.print(f"✅ Successfully added all {success_count} problems to list {args.list_id}", style="green")
+    else:
+        console.print(f"Added {success_count} problems, {fail_count} failed", style="yellow")
 
 
 def handle_update_db(args, config_manager: ConfigManager, db_manager: DatabaseManager,
                      api_client: LeetCodeAPIClient) -> None:
-    """Handle update-db command."""
+    """Handle update-db command with improved progress display."""
     # Determine JSON file path
     data_dir = config_manager.get_data_dir()
 
@@ -142,6 +141,7 @@ def handle_update_db(args, config_manager: ConfigManager, db_manager: DatabaseMa
         json_file = os.path.join(data_dir, "leetcode_problems.json")
 
     # Load problems from JSON file
+    console.print(f"Loading problems from {json_file}...", style="blue")
     problems = FileManager.load_from_json(json_file)
 
     if not problems:
@@ -156,22 +156,29 @@ def handle_update_db(args, config_manager: ConfigManager, db_manager: DatabaseMa
     db_manager.create_tables()
 
     # Get rating dictionary
+    console.print("Fetching problem ratings from GitHub...", style="blue")
     rating_dict = api_client.get_rating_dict()
 
     # Update problems in database
+    console.print(f"Updating {len(problems)} problems in database...", style="blue")
+
     with Progress(
             TextColumn("[bold blue]Updating database..."),
             BarColumn(),
             TaskProgressColumn(),
             TimeRemainingColumn(),
-            transient=False  # This prevents flickering
+            console=console,
+            transient=False,
+            refresh_per_second=1
     ) as progress:
-        task = progress.add_task("[cyan]Updating problems...", total=len(problems))
+        task = progress.add_task("Updating problems", total=len(problems))
 
         success_count = 0
         fail_count = 0
+        batch_size = 50
+        current_batch = 0
 
-        for problem in problems:
+        for i, problem in enumerate(problems):
             # Add rating to problem
             slug = problem.get('titleSlug', '')
             acceptance_rate = problem.get('acRate', 0)
@@ -195,12 +202,19 @@ def handle_update_db(args, config_manager: ConfigManager, db_manager: DatabaseMa
                 fail_count += 1
 
             # Update progress
-            progress.update(task, advance=1)
+            current_batch += 1
+            if current_batch >= batch_size or i == len(problems) - 1:
+                progress.update(task, advance=current_batch, description=f"Updated {i + 1} of {len(problems)} problems")
+                current_batch = 0
 
     # Commit and close
     db_manager.close()
 
-    console.print(f"Database update completed: {success_count} successful, {fail_count} failed", style="green")
+    # Final summary
+    if success_count == len(problems):
+        console.print(f"✅ Successfully updated all {success_count} problems in database", style="green")
+    else:
+        console.print(f"Updated {success_count} problems, {fail_count} failed", style="yellow")
 
 
 def handle_configure_db(args, config_manager: ConfigManager) -> None:
@@ -210,7 +224,7 @@ def handle_configure_db(args, config_manager: ConfigManager) -> None:
 
 
 def handle_select_problems(args, config_manager: ConfigManager, db_manager: DatabaseManager) -> None:
-    """Handle select-problems command."""
+    """Handle select-problems command with improved user experience."""
     # Update config paths if provided
     if args.rating_brackets:
         config_manager.set_value("rating_brackets_path", args.rating_brackets)
@@ -223,6 +237,8 @@ def handle_select_problems(args, config_manager: ConfigManager, db_manager: Data
         return
 
     try:
+        console.print(f"Selecting high-quality problems for rating bracket {args.rating_bracket}...", style="blue")
+
         # Initialize problem selector
         selector = ProblemSelector(
             db_manager,
@@ -233,12 +249,17 @@ def handle_select_problems(args, config_manager: ConfigManager, db_manager: Data
         # Generate problem list
         problems = selector.generate_problem_list(args.rating_bracket, args.problem_count)
 
+        if problems["total_count"] == 0:
+            console.print("No problems found matching the criteria.", style="yellow")
+            return
+
         # Display if requested
         if args.display:
             selector.display_problem_list(problems)
 
         # Save to file
         selector.save_to_file(problems, args.output)
+        console.print(f"✅ Saved {problems['total_count']} problems to {args.output}", style="green")
 
     finally:
         # Close database connection
@@ -246,7 +267,7 @@ def handle_select_problems(args, config_manager: ConfigManager, db_manager: Data
 
 
 def handle_help() -> None:
-    """Display help information."""
+    """Display help information with improved formatting."""
     table = Table(title="LeetCode CLI Commands", box=ROUNDED)
 
     table.add_column("Command", style="cyan", no_wrap=True)
@@ -300,7 +321,7 @@ def handle_help() -> None:
 
 
 def handle_config(args, config_manager: ConfigManager) -> None:
-    """Handle config command."""
+    """Handle config command with improved formatting."""
     if args.show:
         # Show current configuration
         table = Table(title="LeetCode Tools Configuration", box=ROUNDED)
