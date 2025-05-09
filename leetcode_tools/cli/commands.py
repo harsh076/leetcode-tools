@@ -232,6 +232,11 @@ def handle_select_problems(args, config_manager: ConfigManager, db_manager: Data
     if args.topic_weights:
         config_manager.set_value("topic_weights_path", args.topic_weights)
 
+    # Validate output path is not empty
+    if not args.output:
+        console.print("Error: Output file path is required", style="red")
+        return
+
     # Connect to database
     if not db_manager.connect():
         return
@@ -249,7 +254,7 @@ def handle_select_problems(args, config_manager: ConfigManager, db_manager: Data
         # Generate problem list
         problems = selector.generate_problem_list(args.rating_bracket, args.problem_count)
 
-        if problems["total_count"] == 0:
+        if not problems or problems["total_count"] == 0:
             console.print("No problems found matching the criteria.", style="yellow")
             return
 
@@ -259,7 +264,6 @@ def handle_select_problems(args, config_manager: ConfigManager, db_manager: Data
 
         # Save to file
         selector.save_to_file(problems, args.output)
-        console.print(f"✅ Saved {problems['total_count']} problems to {args.output}", style="green")
 
     finally:
         # Close database connection

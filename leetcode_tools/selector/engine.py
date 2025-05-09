@@ -266,15 +266,28 @@ class ProblemSelector:
     def save_to_file(self, problems_by_difficulty: Dict, file_path: str) -> None:
         """Save the problem list to a file for later use."""
         try:
+            # Check if file_path is empty or None
+            if not file_path:
+                console.print("Error: Output file path is empty or None", style="red")
+                return
+
             # Ensure directory exists
-            os.makedirs(os.path.dirname(file_path), exist_ok=True)
+            directory = os.path.dirname(file_path)
+            if directory:  # Only create directory if there's a directory path
+                os.makedirs(directory, exist_ok=True)
+
+            # Check if problems_by_difficulty is valid
+            if not problems_by_difficulty or not isinstance(problems_by_difficulty, dict):
+                console.print("Error: Invalid problem data", style="red")
+                return
 
             with open(file_path, 'w') as f:
                 for difficulty in ["easy", "medium", "hard"]:
-                    for problem in problems_by_difficulty[difficulty]:
-                        if "title_slug" in problem:
-                            f.write(f"{problem['title_slug']}\n")
+                    if difficulty in problems_by_difficulty:
+                        for problem in problems_by_difficulty[difficulty]:
+                            if "title_slug" in problem:
+                                f.write(f"{problem['title_slug']}\n")
 
-            console.print(f"Saved {problems_by_difficulty['total_count']} problems to {file_path}", style="green")
+            console.print(f"✅ Saved {problems_by_difficulty['total_count']} problems to {file_path}", style="green")
         except Exception as e:
             console.print(f"Error saving problems to file: {e}", style="red")
