@@ -2,6 +2,7 @@
 import json
 import csv
 import os
+import shutil
 from typing import Dict, List, Any, Optional
 from rich.console import Console
 
@@ -122,4 +123,19 @@ class FileManager:
             return True
         except Exception as e:
             console.print(f"Error saving problem slugs: {e}", style="red")
+            return False
+
+    @staticmethod
+    def copy_file(src_path: str, dst_path: str) -> bool:
+        """Copy a file from source to destination."""
+        try:
+            # Ensure destination directory exists
+            os.makedirs(os.path.dirname(dst_path), exist_ok=True)
+
+            # Copy the file
+            shutil.copyfile(src_path, dst_path)
+            console.print(f"Copied file from {src_path} to {dst_path}", style="green")
+            return True
+        except Exception as e:
+            console.print(f"Error copying file: {e}", style="red")
             return False

@@ -2,7 +2,7 @@
 import json
 import mysql.connector
 from mysql.connector import pooling
-from typing import Dict, List, Optional, Tuple, Any
+from typing import Dict, List, Optional, Tuple, Any, Union
 from rich.console import Console
 
 console = Console()
@@ -431,4 +431,25 @@ class DatabaseManager:
             return self.cursor.fetchall()
         except mysql.connector.Error as e:
             console.print(f"Error fetching problems: {e}", style="red")
+            return []
+
+    def execute_custom_query(self, query: str) -> List[Dict]:
+        """
+        Execute a custom SQL query and return the results.
+
+        Args:
+            query: SQL query string to execute
+
+        Returns:
+            List of dictionaries containing the query results
+        """
+        if not self.cursor:
+            if not self.connect():
+                return []
+
+        try:
+            self.cursor.execute(query)
+            return self.cursor.fetchall()
+        except mysql.connector.Error as e:
+            console.print(f"Error executing custom query: {e}", style="red")
             return []

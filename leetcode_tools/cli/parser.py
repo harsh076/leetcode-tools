@@ -2,19 +2,21 @@
 import argparse
 from typing import Optional
 
+
 def setup_parsers() -> argparse.ArgumentParser:
     """Set up command-line argument parsers for the main CLI tool."""
     parser = argparse.ArgumentParser(
         description="LeetCode CLI - A command-line tool for managing your LeetCode problems and lists",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-Examples:
-  leetcode-cli login --session=YOUR_SESSION --csrf=YOUR_CSRF
-  leetcode-cli fetch
-  leetcode-cli add-to-list LIST_ID --problems-file=problems.txt
-  leetcode-cli update-db
-  leetcode-cli configure-db --host=localhost --user=root --password=root --database=leetcode
-  leetcode-cli help
+        Examples:
+          leetcode-cli login --session=YOUR_SESSION --csrf=YOUR_CSRF
+          leetcode-cli fetch
+          leetcode-cli add-to-list LIST_ID --problems-file=problems.txt
+          leetcode-cli update-db
+          leetcode-cli configure-db --host=localhost --user=root --password=root --database=leetcode
+          leetcode-cli select-problems [--sql-script=custom.sql] [--count=20] [--output-file=problems.txt]
+          leetcode-cli help
         """
     )
 
@@ -48,14 +50,16 @@ Examples:
     config_db_parser.add_argument('--password', default='root', help='Database password')
     config_db_parser.add_argument('--database', default='leetcode', help='Database name')
 
-    # Select problems command
-    select_problems_parser = subparsers.add_parser('select-problems', help='Select high-quality LeetCode problems')
-    select_problems_parser.add_argument('rating_bracket', help='Rating bracket to generate problems for')
-    select_problems_parser.add_argument('problem_count', type=int, help='Total number of problems to generate')
-    select_problems_parser.add_argument('--output', '-o', required=True, help='Output file for problem list')
-    select_problems_parser.add_argument('--display', '-d', action='store_true', help='Display the problem list')
-    select_problems_parser.add_argument('--rating-brackets', help='Path to custom rating brackets config file')
-    select_problems_parser.add_argument('--topic-weights', help='Path to custom topic weights config file')
+    # Select problems command (Updated)
+    select_problems_parser = subparsers.add_parser('select-problems',
+                                                   help='Select high-quality problems using custom SQL')
+    select_problems_parser.add_argument('--sql-script',
+                                        help='Path to custom SQL script (default: Stats.sql in data directory)')
+    select_problems_parser.add_argument('--count', '-n', type=int, help='Maximum number of problems to display/output')
+    # Mutually exclusive group for output options
+    output_group = select_problems_parser.add_mutually_exclusive_group()
+    output_group.add_argument('--output-file', '-o', help='Save problem slugs to a file')
+    output_group.add_argument('--list-id', '-l', help='Add problems to a LeetCode list')
 
     # Help command
     subparsers.add_parser('help', help='Display help information')
@@ -68,24 +72,25 @@ Examples:
 
     return parser
 
+
 def setup_selector_parser() -> argparse.ArgumentParser:
     """Set up command-line argument parsers for the selector tool."""
     parser = argparse.ArgumentParser(
         description="LeetCode Quality Problem Selector",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
-Examples:
-  leetcode-selector 1700-1800 100 --output=problems_1700_1800.txt
-  leetcode-selector 2000-2100 50 --output=problems_2000_2100.txt --display
+        Examples:
+          leetcode-selector --sql-script=custom.sql --count=20 --output-file=problems.txt
+          leetcode-selector --list-id=YOUR_LIST_ID
         """
     )
 
-    parser.add_argument('rating_bracket', help='Rating bracket to generate problems for')
-    parser.add_argument('problem_count', type=int, help='Total number of problems to generate')
-    parser.add_argument('--output', '-o', required=True, help='Output file for problem list')
-    parser.add_argument('--display', '-d', action='store_true', help='Display the problem list')
-    parser.add_argument('--rating-brackets', help='Path to custom rating brackets JSON file')
-    parser.add_argument('--topic-weights', help='Path to custom topic weights JSON file')
+    parser.add_argument('--sql-script', help='Path to custom SQL script (default: Stats.sql in data directory)')
+
+    # Mutually exclusive group for output options
+    output_group = parser.add_mutually_exclusive_group()
+    output_group.add_argument('--output-file', '-o', help='Save problem slugs to a file')
+    output_group.add_argument('--list-id', '-l', help='Add problems to a LeetCode list')
     parser.add_argument('--config', help='Path to config file')
 
     return parser

@@ -61,7 +61,7 @@ def cli_main(args=None):
     elif args.command == 'configure-db':
         handle_configure_db(args, config_manager)
     elif args.command == 'select-problems':
-        handle_select_problems(args, config_manager, db_manager)
+        handle_select_problems(args, config_manager, db_manager, api_client)
     elif args.command == 'config':
         handle_config(args, config_manager)
     elif args.command == 'help' or args.command is None:
@@ -87,12 +87,10 @@ def selector_main(args=None):
         config_path = args.config if hasattr(args, 'config') and args.config else None
         config_manager = ConfigManager(config_path)
 
-        # Update config if paths provided
-        if hasattr(args, 'rating_brackets') and args.rating_brackets:
-            config_manager.set_value("rating_brackets_path", args.rating_brackets)
-
-        if hasattr(args, 'topic_weights') and args.topic_weights:
-            config_manager.set_value("topic_weights_path", args.topic_weights)
+        # Initialize API client if needed
+        api_client = LeetCodeAPIClient()
+        auth = config_manager.get_auth_tokens()
+        api_client.set_auth_tokens(auth["session"], auth["csrf"])
 
         # Initialize database manager
         db_manager = DatabaseManager(config_manager.get_db_config())
@@ -100,24 +98,8 @@ def selector_main(args=None):
             sys.exit(1)
 
         try:
-            # Initialize problem selector
-            from ..selector.engine import ProblemSelector
-            selector = ProblemSelector(
-                db_manager,
-                rating_brackets_path=config_manager.get_value("rating_brackets_path"),
-                topic_weights_path=config_manager.get_value("topic_weights_path")
-            )
-
-            # Generate problem list
-            problems = selector.generate_problem_list(args.rating_bracket, args.problem_count)
-
-            # Display if requested
-            if args.display:
-                selector.display_problem_list(problems)
-
-            # Save to file
-            selector.save_to_file(problems, args.output)
-
+            # Handle select problems command
+            handle_select_problems(args, config_manager, db_manager, api_client)
         finally:
             # Close database connection
             db_manager.close()

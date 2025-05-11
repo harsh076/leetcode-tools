@@ -5,8 +5,8 @@ A modular collection of tools for LeetCode problem management with a focus on se
 ## Features
 
 - **Fetch Problems**: Download problem data from LeetCode
-- **Quality Selection**: Select problems based on quality metrics like acceptance rate, frequency, and like ratio
-- **Rating-Based**: Target problems matching your current rating level
+- **Quality Selection**: Select problems based on SQL-defined quality metrics like acceptance rate, frequency, and like ratio
+- **Custom SQL**: Use customizable SQL queries to select problems matching your criteria
 - **Add to Lists**: Add selected problems to your LeetCode lists
 - **Database Storage**: Store problem data locally for fast access
 
@@ -59,6 +59,7 @@ leetcode_tools/
 │   └── file.py              # File operations
 ├── data/                    # Default data files
 │   ├── __init__.py
+│   ├── Stats.sql            # Default SQL script for problem selection
 │   ├── rating_brackets.json # Rating brackets configuration
 │   └── topic_weights.json   # Topic weights configuration
 └── selector/                # Problem selection module
@@ -136,8 +137,8 @@ leetcode-cli fetch
 # Update your local database
 leetcode-cli update-db
 
-# Select high-quality problems for rating bracket 1900-2000
-leetcode-cli select-problems 1900-2000 100 --output=problems.txt --display
+# Select high-quality problems using SQL query
+leetcode-cli select-problems [--sql-script=custom.sql] [--count=N] [--output-file=problems.txt] [--list-id=YOUR_LIST_ID]
 
 # Add problems to a LeetCode list
 leetcode-cli add-to-list YOUR_LIST_ID --problems-file=problems.txt
@@ -154,39 +155,36 @@ leetcode-cli config --set data_dir /path/to/data
 Specialized CLI for problem selection:
 
 ```bash
-# Select problems for rating bracket 2000-2100
-leetcode-selector 2000-2100 50 --output=problems.txt --display
+# Select problems using the default SQL query
+leetcode-selector 
 
-# Use custom rating brackets and topic weights
-leetcode-selector 1900-2000 100 --output=problems.txt --rating-brackets=custom_brackets.json --topic-weights=custom_weights.json
+# Use custom SQL script
+leetcode-selector --sql-script=custom.sql
+
+# Save problem slugs to a file
+leetcode-selector --output-file=problems.txt
+
+# Add problems directly to a LeetCode list
+leetcode-selector --list-id=YOUR_LIST_ID
 ```
 
-### Rating Brackets
+### Custom SQL Queries
 
-The default rating brackets are configured for different skill levels:
+The tool uses a SQL query to select high-quality problems. You can customize the selection criteria by:
 
-| Bracket | Easy % | Medium % | Hard % | Focus Areas |
-|---------|--------|----------|--------|-------------|
-| 1700-1800 | 20 | 70 | 10 | Fundamentals |
-| 1800-1900 | 10 | 65 | 25 | Medium-level |
-| 1900-2000 | 5 | 55 | 40 | Advanced algorithms |
-| 2000-2100 | 0 | 50 | 50 | Hard problems |
-| 2100-2200 | 0 | 40 | 60 | System design |
-| 2200-2300 | 0 | 30 | 70 | Advanced topics |
-| 2300-2400 | 0 | 20 | 80 | Expert level |
+1. Edit the default SQL script located in your data directory (typically `~/.config/leetcode-tools/Stats.sql`)
+2. Provide your own SQL script with the `--sql-script` parameter
 
-You can customize the brackets by creating your own JSON file and specifying it with `--rating-brackets`.
+The default SQL query assigns a quality score based on:
+- Problem rating
+- Like/dislike ratio
+- Problem frequency
+- Acceptance rate
+- Company tags (Google problems get bonus points)
+- Topic weights
+- Difficulty level
 
-### Topic Weights
-
-Topics are weighted based on their importance for senior backend roles:
-
-- Critical topics (weight 1.5-1.6): Graph, Dynamic Programming, Binary Search, Design
-- Important topics (weight 1.3-1.4): Trees, Arrays, Hash Tables, Heap
-- Medium importance (weight 1.2): Math, Matrix, Bit Manipulation
-- Lower importance (weight 0.8-1.1): Shell, Database, Game Theory
-
-You can customize the weights by creating your own JSON file and specifying it with `--topic-weights`.
+You can modify the weights and criteria to match your preparation needs.
 
 ## Troubleshooting
 
@@ -215,20 +213,26 @@ The package can also be used programmatically:
 ```python
 from leetcode_tools.core import ConfigManager, DatabaseManager
 from leetcode_tools.api import LeetCodeAPIClient
-from leetcode_tools.selector import ProblemSelector
 
 # Initialize components
 config_manager = ConfigManager()
 db_manager = DatabaseManager(config_manager.get_db_config())
 db_manager.connect()
 
-# Select problems
-selector = ProblemSelector(db_manager)
-problems = selector.generate_problem_list("1900-2000", 100)
+# Execute custom SQL query
+sql_query = """
+SELECT id, title, title_slug, difficulty, url
+FROM problems
+WHERE difficulty = 'Hard' AND status IS NULL
+ORDER BY frequency_bar DESC
+LIMIT 10
+"""
+db_manager.cursor.execute(sql_query)
+problems = db_manager.cursor.fetchall()
 
-# Display and save
-selector.display_problem_list(problems)
-selector.save_to_file(problems, "problems.txt")
+# Process results
+for problem in problems:
+    print(f"{problem['title']} ({problem['difficulty']}): {problem['url']}")
 
 # Clean up
 db_manager.close()

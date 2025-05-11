@@ -9,11 +9,8 @@ from rich.panel import Panel
 from rich.box import ROUNDED
 from rich.progress import Progress, TaskProgressColumn, TextColumn, BarColumn, TimeRemainingColumn
 
-from ..core.config import ConfigManager
-from ..core.database import DatabaseManager
-from ..core.file import FileManager
-from ..api.client import LeetCodeAPIClient
-from ..selector.engine import ProblemSelector
+from leetcode_tools.api import LeetCodeAPIClient
+from leetcode_tools.core import ConfigManager, FileManager, DatabaseManager
 
 console = Console()
 
@@ -223,52 +220,188 @@ def handle_configure_db(args, config_manager: ConfigManager) -> None:
     console.print("Database configuration updated.", style="green")
 
 
-def handle_select_problems(args, config_manager: ConfigManager, db_manager: DatabaseManager) -> None:
-    """Handle select-problems command with improved user experience."""
-    # Update config paths if provided
-    if args.rating_brackets:
-        config_manager.set_value("rating_brackets_path", args.rating_brackets)
-
-    if args.topic_weights:
-        config_manager.set_value("topic_weights_path", args.topic_weights)
-
-    # Validate output path is not empty
-    if not args.output:
-        console.print("Error: Output file path is required", style="red")
-        return
+def handle_select_problems(args, config_manager: ConfigManager, db_manager: DatabaseManager,
+                           api_client: Optional[LeetCodeAPIClient] = None) -> None:
+    """Handle select-problems command using custom SQL query for quality problem selection."""
 
     # Connect to database
     if not db_manager.connect():
         return
 
     try:
-        console.print(f"Selecting high-quality problems for rating bracket {args.rating_bracket}...", style="blue")
+        # Determine SQL script to use
+        sql_script_path = args.sql_script
+        if not sql_script_path:
+            # Use default Stats.sql in the data directory
+            data_dir = config_manager.get_data_dir()
+            sql_script_path = os.path.join(data_dir, "Stats.sql")
 
-        # Initialize problem selector
-        selector = ProblemSelector(
-            db_manager,
-            rating_brackets_path=config_manager.get_value("rating_brackets_path"),
-            topic_weights_path=config_manager.get_value("topic_weights_path")
-        )
+            # If the default script doesn't exist, create it
+            if not os.path.exists(sql_script_path):
+                # Find package data directory to copy the default script
+                package_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                default_script_path = os.path.join(package_dir, "data", "Stats.sql")
 
-        # Generate problem list
-        problems = selector.generate_problem_list(args.rating_bracket, args.problem_count)
+                if os.path.exists(default_script_path):
+                    # Copy default script to data directory
+                    FileManager.copy_file(default_script_path, sql_script_path)
+                else:
+                    console.print("Default SQL script not found. Please provide a custom script.", style="red")
+                    return
 
-        if not problems or problems["total_count"] == 0:
-            console.print("No problems found matching the criteria.", style="yellow")
+        # Read the SQL script
+        console.print(f"Reading SQL script from {sql_script_path}...", style="blue")
+        try:
+            with open(sql_script_path, 'r') as f:
+                sql_query = f.read()
+        except Exception as e:
+            console.print(f"Error reading SQL script: {e}", style="red")
             return
 
-        # Display if requested
-        if args.display:
-            selector.display_problem_list(problems)
+        # Execute SQL query
+        console.print("Executing SQL query to find high-quality problems...", style="blue")
+        try:
+            db_manager.cursor.execute(sql_query)
+            problems = db_manager.cursor.fetchall()
 
-        # Save to file
-        selector.save_to_file(problems, args.output)
+            if not problems:
+                console.print("No problems found matching the SQL criteria.", style="yellow")
+                return
+
+            console.print(f"Found {len(problems)} high-quality problems.", style="green")
+        except Exception as e:
+            console.print(f"Error executing SQL query: {e}", style="red")
+            return
+
+        # Process the output based on user's choice
+        # If we need to add to a list but don't have an API client, create one
+        if args.list_id and api_client is None:
+            api_client = LeetCodeAPIClient()
+            auth = config_manager.get_auth_tokens()
+            api_client.set_auth_tokens(auth["session"], auth["csrf"])
+
+        # Limit the number of problems if count is specified
+        problem_count = args.count if hasattr(args, 'count') and args.count is not None else len(problems)
+        problems = problems[:problem_count]
+
+        if args.output_file:
+            # Save problem slugs to file
+            try:
+                with open(args.output_file, 'w') as f:
+                    for problem in problems:
+                        if 'title_slug' in problem:
+                            f.write(f"{problem['title_slug']}\n")
+                console.print(f"✅ Saved {len(problems)} problem slugs to {args.output_file}", style="green")
+            except Exception as e:
+                console.print(f"Error saving to file: {e}", style="red")
+
+        elif args.list_id:
+            # Add problems to LeetCode list
+            auth_result = api_client.verify_auth()
+            if not auth_result["success"]:
+                console.print(f"Authentication failed: {auth_result['message']}", style="red")
+                return
+
+            success_count = 0
+            fail_count = 0
+
+            with Progress(
+                    TextColumn("[bold blue]Adding problems to list..."),
+                    BarColumn(),
+                    TaskProgressColumn(),
+                    TimeRemainingColumn(),
+                    console=console,
+                    transient=False,
+                    refresh_per_second=1
+            ) as progress:
+                task = progress.add_task(f"Adding to list {args.list_id}", total=len(problems))
+
+                for i, problem in enumerate(problems, 1):
+                    if 'question_id' not in problem:
+                        # Get problem ID from slug
+                        problem_id, error = api_client.get_problem_id(problem['title_slug'])
+                        if error:
+                            fail_count += 1
+                            progress.update(task, advance=1)
+                            continue
+                    else:
+                        problem_id = problem['question_id']
+
+                    # Add problem to list
+                    success, message = api_client.add_problem_to_list(args.list_id, problem_id)
+                    if success:
+                        success_count += 1
+                    else:
+                        fail_count += 1
+
+                    # Be nice to the server
+                    if i < len(problems):
+                        time.sleep(0.5)
+
+                    progress.update(task, advance=1, description=f"Added {success_count} of {len(problems)} problems")
+
+            if success_count == len(problems):
+                console.print(f"✅ Successfully added all {success_count} problems to list {args.list_id}",
+                              style="green")
+            else:
+                console.print(f"Added {success_count} problems, {fail_count} failed", style="yellow")
+        else:
+            # Print problem details to console (default)
+            table = Table(title="High-Quality LeetCode Problems", box=ROUNDED)
+            table.add_column("Title", style="cyan")
+            table.add_column("Difficulty", style="green")
+            table.add_column("Score", justify="right", style="yellow")
+            table.add_column("URL", style="blue")
+
+            for problem in problems:
+                title = problem.get('title', problem.get('title_slug', 'Unknown').replace('-', ' ').title())
+                difficulty = problem.get('difficulty', 'Unknown')
+                score = f"{problem.get('quality_score', 0):.2f}"
+                url = problem.get('url', f"https://leetcode.com/problems/{problem.get('title_slug', '')}/")
+
+                # Set difficulty color
+                difficulty_style = "green"
+                if difficulty == "Medium":
+                    difficulty_style = "yellow"
+                elif difficulty == "Hard":
+                    difficulty_style = "red"
+
+                table.add_row(
+                    title,
+                    f"[{difficulty_style}]{difficulty}[/{difficulty_style}]",
+                    score,
+                    url
+                )
+
+            console.print(table)
+
+            # Print brief stats
+            difficulties = {}
+            for problem in problems:
+                diff = problem.get('difficulty', 'Unknown')
+                difficulties[diff] = difficulties.get(diff, 0) + 1
+
+            stats_table = Table(title="Problem Statistics", box=ROUNDED)
+            stats_table.add_column("Metric", style="cyan")
+            stats_table.add_column("Count", style="green")
+
+            stats_table.add_row("Total Problems", str(len(problems)))
+            for diff, count in difficulties.items():
+                diff_style = "green"
+                if diff == "Medium":
+                    diff_style = "yellow"
+                elif diff == "Hard":
+                    diff_style = "red"
+                stats_table.add_row(
+                    f"{diff} Problems",
+                    f"[{diff_style}]{count}[/{diff_style}] ({count / len(problems) * 100:.1f}%)"
+                )
+
+            console.print(stats_table)
 
     finally:
         # Close database connection
         db_manager.close()
-
 
 def handle_help() -> None:
     """Display help information with improved formatting."""
@@ -305,8 +438,8 @@ def handle_help() -> None:
     )
     table.add_row(
         "select-problems",
-        "Select high-quality LeetCode problems",
-        "leetcode-cli select-problems 1900-2000 100 --output=problems.txt"
+        "Select high-quality problems using SQL query",
+        "leetcode-cli select-problems [--sql-script=custom.sql] [--count=20] [--output-file=problems.txt] [--list-id=YOUR_LIST_ID]"
     )
     table.add_row(
         "config",
