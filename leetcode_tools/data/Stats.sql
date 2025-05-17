@@ -5,40 +5,43 @@
 WITH config AS (
     SELECT
         -- Main score component weights (should sum to 100)
-    	25 AS weight_rating,           -- Weight for problem rating
-    	20 AS weight_like_ratio,       -- Weight for like/dislike ratio
-    	15 AS weight_frequency,        -- Weight for problem frequency
-    	15 AS weight_acceptance,       -- Weight for acceptance rate
-        15 AS weight_company,          -- Weight for company tags
-        5 AS weight_topic,            -- Weight for topic relevance
-        5 AS weight_difficulty,        -- Weight for problem difficulty
+
+        55 AS weight_rating,           -- Weight for problem rating
+        10 AS weight_like_ratio,       -- Weight for like/dislike ratio
+        10 AS weight_frequency,        -- Weight for problem frequency
+        7 AS weight_acceptance,        -- Weight for acceptance rate
+        8 AS weight_company,           -- Weight for company tags
+        8 AS weight_topic,             -- Weight for topic relevance
+        2 AS weight_difficulty,        -- Weight for problem difficulty
 
         -- Frequency thresholds
-        80 AS max_frequency,           -- Maximum frequency to consider (for normalization)
+        90 AS max_frequency,           -- Maximum frequency to consider (for normalization)
 
         -- Acceptance rate optimal ranges by difficulty
         50 AS easy_acc_min,            -- Easy: Optimal min acceptance
         70 AS easy_acc_max,            -- Easy: Optimal max acceptance
+
         35 AS medium_acc_min,          -- Medium: Optimal min acceptance
         60 AS medium_acc_max,          -- Medium: Optimal max acceptance
+
         25 AS hard_acc_min,            -- Hard: Optimal min acceptance
         45 AS hard_acc_max,            -- Hard: Optimal max acceptance
 
         -- Like ratio parameters
-        30 AS max_like_ratio,          -- Maximum like ratio to consider (for normalization)
+        10 AS max_like_ratio,          -- Maximum like ratio to consider (for normalization)
 
         -- Rating parameters
-        1750 AS target_rating,         -- Target rating (problems closer to this get higher score)
-        100 AS rating_scale,           -- Scale factor for rating difference
+        1500 AS target_rating,         -- Target rating (problems closer to this get higher score)
+        85 AS rating_scale,           -- Scale factor for rating difference
 
         -- Difficulty bonus points
         0 AS easy_bonus,               -- Bonus points for Easy problems
-        7 AS medium_bonus,             -- Bonus points for Medium problems
-        10 AS hard_bonus,              -- Bonus points for Hard problems
+        0 AS medium_bonus,             -- Bonus points for Medium problems
+        0 AS hard_bonus,              -- Bonus points for Hard problems
 
         -- Company tag bonus parameters
-        10 AS google_bonus,            -- Bonus points for Google problems
-        8 AS other_faang_bonus,        -- Points per other FAANG company tag (max 8)
+        1.0 AS google_bonus,           -- Bonus multiplier for Google problems (not points)
+        0.7 AS other_faang_bonus,      -- Multiplier per other FAANG company tag
 
         -- Topic weights (adjust based on your focus areas)
         1.5 AS weight_critical_ds,     -- Weight for critical data structures
@@ -144,9 +147,9 @@ problem_scores AS (
         ROUND(LEAST(CASE WHEN p.dislikes > 0 THEN p.likes/p.dislikes ELSE p.likes END, c.max_like_ratio)
               / c.max_like_ratio * c.weight_like_ratio, 2) AS like_score,
 
-        -- 5. Rating score
-        ROUND(LEAST(c.weight_rating,
-                    GREATEST(0, c.weight_rating - ABS(p.rating - c.target_rating) / c.rating_scale)), 2) AS rating_score,
+        -- 5. Rating score using Gaussian distribution
+        ROUND(c.weight_rating *
+              EXP(-(POW(p.rating - c.target_rating, 2) / (2 * POW(c.rating_scale, 2)))), 2) AS rating_score,
 
         -- 6. Difficulty bonus
         CASE
@@ -183,11 +186,12 @@ topic_scores AS (
 company_scores AS (
     SELECT
         pc.problem_id,
+        (SELECT weight_company FROM config) *
         CASE
             WHEN COUNT(*) > 0 AND MAX(CASE WHEN c.name = 'Google' THEN 1 ELSE 0 END) = 1
                 THEN (SELECT google_bonus FROM config)
             WHEN COUNT(*) > 0
-                THEN LEAST(COUNT(*) * (SELECT other_faang_bonus FROM config), 8)
+                THEN LEAST(COUNT(*) * (SELECT other_faang_bonus FROM config), 0.8)
             ELSE 0
         END AS company_score
     FROM
