@@ -11,9 +11,8 @@ def setup_parsers() -> argparse.ArgumentParser:
         epilog="""
         Examples:
           leetcode-cli login --session=YOUR_SESSION --csrf=YOUR_CSRF
-          leetcode-cli fetch
+          leetcode-cli sync [--json-file=problems.json] [--csv-file=problems.csv] [--no-csv]
           leetcode-cli add-to-list LIST_ID --problems-file=problems.txt
-          leetcode-cli update-db
           leetcode-cli configure-db --host=localhost --user=root --password=root --database=leetcode
           leetcode-cli select-problems [--sql-script=custom.sql] [--count=20] [--output-file=problems.txt]
           leetcode-cli help
@@ -27,21 +26,17 @@ def setup_parsers() -> argparse.ArgumentParser:
     login_parser.add_argument('--session', required=True, help='Your LeetCode session token')
     login_parser.add_argument('--csrf', required=True, help='Your LeetCode CSRF token')
 
-    # Fetch command
-    fetch_parser = subparsers.add_parser('fetch', help='Fetch all LeetCode problems and save to JSON/CSV')
-    fetch_parser.add_argument('--json-file', help='Output JSON file path')
-    fetch_parser.add_argument('--csv-file', help='Output CSV file path')
-    fetch_parser.add_argument('--no-csv', action='store_true', help='Skip CSV generation')
+    # Sync command (combines fetch and update-db)
+    sync_parser = subparsers.add_parser('sync', help='Fetch LeetCode problems and update the database in one step')
+    sync_parser.add_argument('--json-file', help='Output JSON file path')
+    sync_parser.add_argument('--csv-file', help='Output CSV file path')
+    sync_parser.add_argument('--no-csv', action='store_true', help='Skip CSV generation')
 
     # Add to list command
     add_list_parser = subparsers.add_parser('add-to-list', help='Add problems from a file to a LeetCode list')
     add_list_parser.add_argument('list_id', help='Your LeetCode list ID')
     add_list_parser.add_argument('--problems-file', default='problems.txt', help='File containing problem slugs or IDs')
     add_list_parser.add_argument('--delay', type=float, default=0.5, help='Delay between requests in seconds')
-
-    # Update database command
-    update_db_parser = subparsers.add_parser('update-db', help='Update database with problem information')
-    update_db_parser.add_argument('--json-file', help='JSON file with problem data')
 
     # Configure database command
     config_db_parser = subparsers.add_parser('configure-db', help='Configure database connection settings')
@@ -50,7 +45,7 @@ def setup_parsers() -> argparse.ArgumentParser:
     config_db_parser.add_argument('--password', default='root', help='Database password')
     config_db_parser.add_argument('--database', default='leetcode', help='Database name')
 
-    # Select problems command (Updated)
+    # Select problems command
     select_problems_parser = subparsers.add_parser('select-problems',
                                                    help='Select high-quality problems using custom SQL')
     select_problems_parser.add_argument('--sql-script',

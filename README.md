@@ -4,7 +4,7 @@ A modular collection of tools for LeetCode problem management with a focus on se
 
 ## Features
 
-- **Fetch Problems**: Download problem data from LeetCode
+- **Sync Problems**: Download and store problem data from LeetCode in one command
 - **Quality Selection**: Select problems based on SQL-defined quality metrics like acceptance rate, frequency, and like ratio
 - **Custom SQL**: Use customizable SQL queries to select problems matching your criteria
 - **Add to Lists**: Add selected problems to your LeetCode lists
@@ -131,11 +131,11 @@ General-purpose CLI for all operations:
 # Show help
 leetcode-cli help
 
-# Fetch all problems from LeetCode
-leetcode-cli fetch
+# Sync problems (fetch from LeetCode and update database in one step)
+leetcode-cli sync
 
-# Update your local database
-leetcode-cli update-db
+# Configure database connection
+leetcode-cli configure-db
 
 # Select high-quality problems using SQL query
 leetcode-cli select-problems [--sql-script=custom.sql] [--count=N] [--output-file=problems.txt] [--list-id=YOUR_LIST_ID]

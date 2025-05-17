@@ -4,8 +4,8 @@ from rich.console import Console
 
 from .parser import setup_parsers, setup_selector_parser
 from .commands import (
-    handle_login, handle_fetch, handle_add_to_list,
-    handle_update_db, handle_configure_db, handle_select_problems,
+    handle_login, handle_sync, handle_add_to_list,
+    handle_configure_db, handle_select_problems,
     handle_help, handle_config
 )
 from ..core.config import ConfigManager
@@ -52,12 +52,10 @@ def cli_main(args=None):
     # Execute the requested command
     if args.command == 'login':
         handle_login(args, config_manager, api_client)
-    elif args.command == 'fetch':
-        handle_fetch(args, config_manager, api_client)
+    elif args.command == 'sync':
+        handle_sync(args, config_manager, db_manager, api_client)
     elif args.command == 'add-to-list':
         handle_add_to_list(args, config_manager, api_client)
-    elif args.command == 'update-db':
-        handle_update_db(args, config_manager, db_manager, api_client)
     elif args.command == 'configure-db':
         handle_configure_db(args, config_manager)
     elif args.command == 'select-problems':

@@ -213,6 +213,119 @@ def handle_update_db(args, config_manager: ConfigManager, db_manager: DatabaseMa
     else:
         console.print(f"Updated {success_count} problems, {fail_count} failed", style="yellow")
 
+def handle_sync(args, config_manager: ConfigManager, db_manager: DatabaseManager, api_client: LeetCodeAPIClient) -> None:
+    """
+    Handle sync command - fetches problems from LeetCode and updates the database in one step.
+    """
+    # Verify authentication first
+    auth_result = api_client.verify_auth()
+    if not auth_result["success"]:
+        console.print(f"Authentication failed: {auth_result['message']}", style="red")
+        return
+
+    # Determine output file paths
+    data_dir = config_manager.get_data_dir()
+
+    json_file = args.json_file
+    if not json_file:
+        json_file = os.path.join(data_dir, "leetcode_problems.json")
+
+    csv_file = args.csv_file
+    if not csv_file and not args.no_csv:
+        csv_file = os.path.join(data_dir, "leetcode_problems.csv")
+
+    # Fetch problems with improved progress display
+    console.print("Step 1: Fetching problems from LeetCode...", style="blue")
+    problems = api_client.fetch_problems()
+
+    if not problems:
+        console.print("No problems fetched, exiting.", style="red")
+        return
+
+    # Save to JSON
+    console.print(f"Saving {len(problems)} problems to JSON file...", style="blue")
+    if FileManager.save_to_json(problems, json_file):
+        console.print(f"✅ Data saved to {json_file}", style="green")
+
+    # Convert to CSV if needed
+    if not args.no_csv:
+        console.print(f"Converting to CSV format...", style="blue")
+        if FileManager.convert_problems_to_csv(problems, csv_file):
+            console.print(f"✅ CSV saved to {csv_file}", style="green")
+
+    # Verify database connection
+    console.print("Step 2: Updating database with fetched problems...", style="blue")
+    if not db_manager.connect():
+        console.print("Unable to connect to database. Database update skipped.", style="red")
+        return
+
+    # Create tables if they don't exist
+    db_manager.create_tables()
+
+    # Get rating dictionary
+    console.print("Fetching problem ratings from GitHub...", style="blue")
+    rating_dict = api_client.get_rating_dict()
+
+    # Update problems in database
+    console.print(f"Updating {len(problems)} problems in database...", style="blue")
+
+    with Progress(
+            TextColumn("[bold blue]Updating database..."),
+            BarColumn(),
+            TaskProgressColumn(),
+            TimeRemainingColumn(),
+            console=console,
+            transient=False,
+            refresh_per_second=1
+    ) as progress:
+        task = progress.add_task("Updating problems", total=len(problems))
+
+        success_count = 0
+        fail_count = 0
+        batch_size = 50
+        current_batch = 0
+
+        for i, problem in enumerate(problems):
+            # Add rating to problem
+            slug = problem.get('titleSlug', '')
+            acceptance_rate = problem.get('acRate', 0)
+
+            # Calculate rating
+            if slug in rating_dict:
+                problem['rating'] = rating_dict[slug]
+            elif acceptance_rate:
+                if acceptance_rate <= 10:
+                    point_value = 6
+                elif acceptance_rate >= 50:
+                    point_value = 3
+                else:
+                    point_value = 6 - ((acceptance_rate - 10) / 40) * 3
+                problem['rating'] = 1600 + (point_value - 3) * 200
+
+            # Update problem in database
+            if db_manager.update_problem(problem):
+                success_count += 1
+            else:
+                fail_count += 1
+
+            # Update progress
+            current_batch += 1
+            if current_batch >= batch_size or i == len(problems) - 1:
+                progress.update(task, advance=current_batch, description=f"Updated {i + 1} of {len(problems)} problems")
+                current_batch = 0
+
+    # Commit and close
+    db_manager.close()
+
+    # Final summary
+    console.print("Sync operation complete:", style="bold green")
+    console.print(f"- Successfully fetched {len(problems)} problems from LeetCode", style="green")
+    console.print(f"- JSON data saved to: {json_file}", style="green")
+    if not args.no_csv:
+        console.print(f"- CSV data saved to: {csv_file}", style="green")
+    console.print(f"- Updated {success_count} problems in database", style="green")
+    if fail_count > 0:
+        console.print(f"- {fail_count} problems failed to update", style="yellow")
 
 def handle_configure_db(args, config_manager: ConfigManager) -> None:
     """Handle configure-db command."""
@@ -417,19 +530,14 @@ def handle_help() -> None:
         "leetcode-cli login --session=YOUR_SESSION --csrf=YOUR_CSRF"
     )
     table.add_row(
-        "fetch",
-        "Fetch all LeetCode problems and save to JSON/CSV",
-        "leetcode-cli fetch"
+        "sync",
+        "Fetch LeetCode problems and update database in one step",
+        "leetcode-cli sync [--json-file=problems.json] [--csv-file=problems.csv]"
     )
     table.add_row(
         "add-to-list",
         "Add problems from a file to a LeetCode list",
         "leetcode-cli add-to-list LIST_ID --problems-file=problems.txt"
-    )
-    table.add_row(
-        "update-db",
-        "Update database with problem information",
-        "leetcode-cli update-db"
     )
     table.add_row(
         "configure-db",
